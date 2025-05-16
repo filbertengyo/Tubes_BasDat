@@ -106,9 +106,11 @@ CREATE TABLE IF NOT EXISTS Produk (
 );""")
 add_statement("""
 CREATE TABLE IF NOT EXISTS VarianProduk (
+    id_produk INT,
     sku VARCHAR(50) PRIMARY KEY,
     harga DECIMAL(10, 2),
-    stok INT
+    stok INT,
+    FOREIGN KEY (id_produk) REFERENCES Produk(id_produk)
 );""")
 add_statement("""
 CREATE TABLE IF NOT EXISTS AtributVarian (
@@ -117,12 +119,10 @@ CREATE TABLE IF NOT EXISTS AtributVarian (
 );""")
 add_statement("""
 CREATE TABLE IF NOT EXISTS ProdukVarianAtribut (
-    id_produk INT,
     atribut_varian VARCHAR(50),
     sku VARCHAR(50),
     nilai VARCHAR(100),
-    PRIMARY KEY (id_produk, atribut_varian, sku),
-    FOREIGN KEY (id_produk) REFERENCES Produk(id_produk),
+    PRIMARY KEY (atribut_varian, sku),
     FOREIGN KEY (atribut_varian) REFERENCES AtributVarian(atribut_varian),
     FOREIGN KEY (sku) REFERENCES VarianProduk(sku)
 );""")
@@ -351,7 +351,7 @@ for i in range(num_produk_to_generate):
         all_skus_generated.append({'sku': sku_val, 'harga': harga_varian, 'stok': stok_varian, 'id_produk': produk_id_counter})
         sku_pks_only.append(sku_val)
         current_produk_skus.append(sku_val)
-        add_statement(f"INSERT IGNORE INTO VarianProduk (sku, harga, stok) VALUES ('{sku_val}', {harga_varian}, {stok_varian});")
+        add_statement(f"INSERT IGNORE INTO VarianProduk (id_produk, sku, harga, stok) VALUES ({produk_id_counter},'{sku_val}', {harga_varian}, {stok_varian});")
 
         num_attrs_for_sku = random.randint(1, min(3, len(atribut_varian_pks)))
         chosen_attrs = random.sample(atribut_varian_pks, num_attrs_for_sku)
@@ -364,7 +364,7 @@ for i in range(num_produk_to_generate):
             elif attr_pk_val == 'STORAGE_INTERNAL': nilai_attr = random.choice(['64GB', '128GB', '256GB', '512GB', '1TB'])
             elif attr_pk_val == 'JENIS_KAIN': nilai_attr = random.choice(['Denim', 'Flanel', 'Satin', 'Rayon'])
             elif attr_pk_val == 'RESOLUSI_LAYAR': nilai_attr = random.choice(['HD', 'FHD', 'QHD', '4K'])
-            add_statement(f"INSERT IGNORE INTO ProdukVarianAtribut (id_produk, atribut_varian, sku, nilai) VALUES ({produk_id_counter}, '{attr_pk_val}', '{sku_val}', '{nilai_attr.replace('\'', '\'\'')}');")
+            add_statement(f"INSERT IGNORE INTO ProdukVarianAtribut (atribut_varian, sku, nilai) VALUES ('{attr_pk_val}', '{sku_val}', '{nilai_attr.replace('\'', '\'\'')}');")
             produk_varian_atribut_count += 1
         sku_global_counter += 1
     produk_details.append({'id_produk': produk_id_counter, 'id_penjual': pj_id, 'skus': current_produk_skus})
@@ -377,7 +377,7 @@ while produk_varian_atribut_count < TARGET_MIN_RECORDS and produk_details and at
     sku_val = random.choice(prod_detail['skus'])
     attr_pk_val = random.choice(atribut_varian_pks)
     nilai_attr = fake.word().title() # Generic value
-    add_statement(f"INSERT IGNORE INTO ProdukVarianAtribut (id_produk, atribut_varian, sku, nilai) VALUES ({prod_detail['id_produk']}, '{attr_pk_val}', '{sku_val}', '{nilai_attr.replace('\'', '\'\'')}');")
+    add_statement(f"INSERT IGNORE INTO ProdukVarianAtribut (atribut_varian, sku, nilai) VALUES ('{attr_pk_val}', '{sku_val}', '{nilai_attr.replace('\'', '\'\'')}');")
     produk_varian_atribut_count += 1
 
 # 9. Gambar
