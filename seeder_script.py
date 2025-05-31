@@ -95,8 +95,8 @@ CREATE TABLE IF NOT EXISTS AlamatPembeli (
 # New AlamatDefault table
 add_statement("""
 CREATE TABLE IF NOT EXISTS AlamatDefault (
-    id_alamat_pembeli INT PRIMARY KEY, -- FK to AlamatPembeli.id_alamat_pembeli
-    is_default BOOLEAN DEFAULT TRUE, -- As per image, though TRUE is implied by presence
+    id_alamat_pembeli INT PRIMARY KEY,
+    is_default BOOLEAN DEFAULT TRUE,
     FOREIGN KEY (id_alamat_pembeli) REFERENCES AlamatPembeli(id_alamat_pembeli)
 );""")
 
