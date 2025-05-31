@@ -16,7 +16,7 @@ CREATE TABLE Pengguna (
     tgl_lahir DATE,
     no_telp VARCHAR(20),
     foto_profil VARCHAR(255),
-    is_penjual BOOLEAN,
+    is_penjual BOOLEAN
 );
 
 CREATE TABLE Penjual (
