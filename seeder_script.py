@@ -9,14 +9,12 @@ fake = Faker('id_ID')
 TARGET_MIN_RECORDS = 100
 
 # Konfigurasi Jumlah Data Awal (ini akan menjadi basis)
-NUM_ALAMAT_INITIAL = max(TARGET_MIN_RECORDS, 50) # Alamat bisa lebih banyak untuk variasi
-NUM_PENGGUNA_PENJUAL_INITIAL = max(TARGET_MIN_RECORDS // 2, 50) # Bagi pengguna jadi penjual & pembeli
-NUM_PENGGUNA_PEMBELI_INITIAL = max(TARGET_MIN_RECORDS // 2, 60) # Pembeli bisa sedikit lebih banyak
+NUM_ALAMAT_INITIAL = max(TARGET_MIN_RECORDS, 50)
+NUM_PENGGUNA_PENJUAL_INITIAL = max(TARGET_MIN_RECORDS // 2, 50)
+NUM_PENGGUNA_PEMBELI_INITIAL = max(TARGET_MIN_RECORDS // 2, 60)
+NUM_GAMBAR_TOTAL_INITIAL = max(TARGET_MIN_RECORDS * 2, 150)
+NUM_TAG_TOTAL_INITIAL = max(TARGET_MIN_RECORDS + 20, 60)
 
-NUM_GAMBAR_TOTAL_INITIAL = max(TARGET_MIN_RECORDS * 2, 150) # Gambar bisa lebih banyak
-NUM_TAG_TOTAL_INITIAL = max(TARGET_MIN_RECORDS + 20, 60)   # Tag bisa lebih banyak
-
-# AtributVarian biasanya tidak banyak, jadi tidak perlu TARGET_MIN_RECORDS
 atribut_varian_pks = ['WARNA', 'UKURAN', 'MATERIAL', 'RAM', 'STORAGE_INTERNAL', 'JENIS_KAIN', 'RESOLUSI_LAYAR']
 atribut_nama_map = {
     'WARNA': 'Warna', 'UKURAN': 'Ukuran', 'MATERIAL': 'Material',
@@ -24,20 +22,23 @@ atribut_nama_map = {
     'JENIS_KAIN': 'Jenis Kain', 'RESOLUSI_LAYAR': 'Resolusi Layar'
 }
 
-
 # Lists untuk menyimpan ID yang sudah digenerate untuk referensi FK
 alamat_ids = []
 pengguna_ids_all = []
-pengguna_penjual_details = {} # map id_pengguna -> {'id_penjual': X}
-pengguna_pembeli_details = {} # map id_pengguna -> {'id_pembeli': Y, 'keranjang_id': Z}
+pengguna_penjual_details = {}
+pengguna_pembeli_details = {}
 penjual_ids = []
 pembeli_ids = []
-produk_details = [] # List of dicts {'id_produk': id, 'id_penjual': pj_id, 'skus': [sku_val1, sku_val2]}
-all_skus_generated = [] # List of dicts {'sku': sku_val, 'harga': harga, 'stok': stok, 'id_produk': prod_id}
-sku_pks_only = [] # List of primary keys (sku value) for VarianProduk
+
+# New structure for AlamatPembeli
+alamat_pembeli_records = [] # List of dicts {'id_alamat_pembeli': pk, 'id_pembeli': fk, 'id_alamat': fk}
+
+produk_details = []
+all_skus_generated = []
+sku_pks_only = []
 gambar_ids = []
 tag_ids = []
-pesanan_details = [] # List of dicts {'id_pesanan': id, 'id_pembeli': pb_id, 'items': []}
+pesanan_details = []
 
 sql_statements = []
 
@@ -46,7 +47,7 @@ def add_statement(sql):
 
 add_statement("CREATE DATABASE IF NOT EXISTS ecommerce;")
 add_statement("USE ecommerce;")
-# ... (Salin semua statement CREATE TABLE dari script sebelumnya di sini) ...
+
 add_statement("""
 CREATE TABLE IF NOT EXISTS Alamat (
     id_alamat INT PRIMARY KEY,
@@ -69,6 +70,7 @@ add_statement("""
 CREATE TABLE IF NOT EXISTS Penjual (
     id_penjual INT PRIMARY KEY,
     id_pengguna INT,
+    ktp VARCHAR(255), -- Added KTP based on schema image
     foto_diri VARCHAR(255),
     nama VARCHAR(100),
     is_verified BOOLEAN,
@@ -80,16 +82,25 @@ CREATE TABLE IF NOT EXISTS Pembeli (
     id_pengguna INT,
     FOREIGN KEY (id_pengguna) REFERENCES Pengguna(id_pengguna)
 );""")
+
+# Modified AlamatPembeli structure
 add_statement("""
 CREATE TABLE IF NOT EXISTS AlamatPembeli (
+    id_alamat_pembeli INT PRIMARY KEY, -- New surrogate PK
     id_pembeli INT,
     id_alamat INT,
-    id_pesanan INT,
-    is_default BOOLEAN,
-    PRIMARY KEY (id_pembeli, id_alamat),
     FOREIGN KEY (id_pembeli) REFERENCES Pembeli(id_pembeli),
     FOREIGN KEY (id_alamat) REFERENCES Alamat(id_alamat)
 );""")
+
+# New AlamatDefault table
+add_statement("""
+CREATE TABLE IF NOT EXISTS AlamatDefault (
+    id_alamat_pembeli INT PRIMARY KEY, -- FK to AlamatPembeli.id_alamat_pembeli
+    is_default BOOLEAN DEFAULT TRUE, -- As per image, though TRUE is implied by presence
+    FOREIGN KEY (id_alamat_pembeli) REFERENCES AlamatPembeli(id_alamat_pembeli)
+);""")
+
 add_statement("""
 CREATE TABLE IF NOT EXISTS Keranjang (
     id_keranjang INT PRIMARY KEY,
@@ -104,12 +115,17 @@ CREATE TABLE IF NOT EXISTS Produk (
     deskripsi TEXT,
     FOREIGN KEY (id_penjual) REFERENCES Penjual(id_penjual)
 );""")
+
+# Modified VarianProduk structure
 add_statement("""
 CREATE TABLE IF NOT EXISTS VarianProduk (
     sku VARCHAR(50) PRIMARY KEY,
+    id_produk INT, -- Added FK to Produk
     harga DECIMAL(10, 2),
-    stok INT
+    stok INT,
+    FOREIGN KEY (id_produk) REFERENCES Produk(id_produk)
 );""")
+
 add_statement("""
 CREATE TABLE IF NOT EXISTS AtributVarian (
     atribut_varian VARCHAR(50) PRIMARY KEY,
@@ -161,17 +177,22 @@ CREATE TABLE IF NOT EXISTS BarangKeranjang (
     FOREIGN KEY (id_keranjang) REFERENCES Keranjang(id_keranjang),
     FOREIGN KEY (sku) REFERENCES VarianProduk(sku)
 );""")
+
+# Modified Pesanan structure
 add_statement("""
 CREATE TABLE IF NOT EXISTS Pesanan (
     id_pesanan INT PRIMARY KEY,
     id_pembeli INT,
+    id_alamat_pembeli INT, -- Added FK to AlamatPembeli
     metode_pembayaran VARCHAR(50),
     metode_pengiriman VARCHAR(50),
     catatan TEXT,
     status_pesanan VARCHAR(50),
     waktu_pemesanan TIMESTAMP,
-    FOREIGN KEY (id_pembeli) REFERENCES Pembeli(id_pembeli)
+    FOREIGN KEY (id_pembeli) REFERENCES Pembeli(id_pembeli),
+    FOREIGN KEY (id_alamat_pembeli) REFERENCES AlamatPembeli(id_alamat_pembeli)
 );""")
+
 add_statement("""
 CREATE TABLE IF NOT EXISTS BarangPesanan (
     id_pesanan INT,
@@ -222,11 +243,9 @@ for i in range(1, NUM_ALAMAT_INITIAL + 1):
 add_statement("\n-- Pengguna")
 pengguna_id_counter = 1
 generated_emails = set()
-
-# Penjual
 for i in range(1, NUM_PENGGUNA_PENJUAL_INITIAL + 1):
     email = fake.unique.email()
-    while email in generated_emails: email = fake.email()
+    while email in generated_emails: email = fake.email() # Ensure uniqueness if fake.unique fails
     generated_emails.add(email)
     password = fake.password(length=12)
     nama_lengkap = fake.name()
@@ -234,14 +253,12 @@ for i in range(1, NUM_PENGGUNA_PENJUAL_INITIAL + 1):
     no_telp = fake.phone_number()
     foto_profil = f"profil/user{pengguna_id_counter}.jpg"
     pengguna_ids_all.append(pengguna_id_counter)
-    pengguna_penjual_details[pengguna_id_counter] = {} # Placeholder for id_penjual
+    pengguna_penjual_details[pengguna_id_counter] = {}
     add_statement(f"INSERT IGNORE INTO Pengguna (id_pengguna, email, password, nama_lengkap, tgl_lahir, no_telp, foto_profil, is_penjual) VALUES ({pengguna_id_counter}, '{email}', '{password.replace('\'', '\'\'')}', '{nama_lengkap.replace('\'', '\'\'')}', '{tgl_lahir}', '{no_telp}', '{foto_profil}', TRUE);")
     pengguna_id_counter += 1
-
-# Pembeli
 for i in range(1, NUM_PENGGUNA_PEMBELI_INITIAL + 1):
     email = fake.unique.email()
-    while email in generated_emails: email = fake.email()
+    while email in generated_emails: email = fake.email() # Ensure uniqueness
     generated_emails.add(email)
     password = fake.password(length=12)
     nama_lengkap = fake.name()
@@ -249,7 +266,7 @@ for i in range(1, NUM_PENGGUNA_PEMBELI_INITIAL + 1):
     no_telp = fake.phone_number()
     foto_profil = f"profil/user{pengguna_id_counter}.jpg"
     pengguna_ids_all.append(pengguna_id_counter)
-    pengguna_pembeli_details[pengguna_id_counter] = {} # Placeholder for id_pembeli & keranjang_id
+    pengguna_pembeli_details[pengguna_id_counter] = {}
     add_statement(f"INSERT IGNORE INTO Pengguna (id_pengguna, email, password, nama_lengkap, tgl_lahir, no_telp, foto_profil, is_penjual) VALUES ({pengguna_id_counter}, '{email}', '{password.replace('\'', '\'\'')}', '{nama_lengkap.replace('\'', '\'\'')}', '{tgl_lahir}', '{no_telp}', '{foto_profil}', FALSE);")
     pengguna_id_counter += 1
 
@@ -257,12 +274,13 @@ for i in range(1, NUM_PENGGUNA_PEMBELI_INITIAL + 1):
 add_statement("\n-- Penjual")
 penjual_id_counter = 1
 for p_id_pengguna in pengguna_penjual_details.keys():
+    ktp_val = fake.numerify(text='3###############') # 16 digit NIK
     foto_diri = f"fotodiri/penjual{penjual_id_counter}.jpg"
     nama_toko = fake.company().replace('\'', '\'\'') + " Store"
     is_verified = random.choice(["TRUE", "FALSE"])
     penjual_ids.append(penjual_id_counter)
     pengguna_penjual_details[p_id_pengguna]['id_penjual'] = penjual_id_counter
-    add_statement(f"INSERT IGNORE INTO Penjual (id_penjual, id_pengguna, foto_diri, nama, is_verified) VALUES ({penjual_id_counter}, {p_id_pengguna}, '{foto_diri}', '{nama_toko}', {is_verified});")
+    add_statement(f"INSERT IGNORE INTO Penjual (id_penjual, id_pengguna, ktp, foto_diri, nama, is_verified) VALUES ({penjual_id_counter}, {p_id_pengguna}, '{ktp_val}', '{foto_diri}', '{nama_toko}', {is_verified});")
     penjual_id_counter +=1
 
 # 4. Pembeli
@@ -274,32 +292,61 @@ for p_id_pengguna in pengguna_pembeli_details.keys():
     add_statement(f"INSERT IGNORE INTO Pembeli (id_pembeli, id_pengguna) VALUES ({pembeli_id_counter}, {p_id_pengguna});")
     pembeli_id_counter += 1
 
-# 5. AlamatPembeli
+# 5. AlamatPembeli (Modified)
 add_statement("\n-- AlamatPembeli")
-alamat_pembeli_count = 0
+id_alamat_pembeli_counter = 1
+alamat_pembeli_per_buyer = {} # To track addresses for AlamatDefault
+
 for pb_id in pembeli_ids:
     num_addresses_for_buyer = random.randint(1, min(3, len(alamat_ids)))
+    if not alamat_ids: continue # Skip if no addresses to assign
     chosen_alamat_ids = random.sample(alamat_ids, num_addresses_for_buyer)
-    default_set = False
-    for idx, al_id in enumerate(chosen_alamat_ids):
-        is_default = "FALSE"
-        if not default_set or (idx == len(chosen_alamat_ids) -1 and not default_set) :
-            is_default = "TRUE"
-            default_set = True
-        add_statement(f"INSERT IGNORE INTO AlamatPembeli (id_pembeli, id_alamat, id_pesanan, is_default) VALUES ({pb_id}, {al_id}, NULL, {is_default});")
-        alamat_pembeli_count +=1
-# Tambah jika kurang dari TARGET_MIN_RECORDS
-while alamat_pembeli_count < TARGET_MIN_RECORDS and pembeli_ids and alamat_ids:
+    
+    if pb_id not in alamat_pembeli_per_buyer:
+        alamat_pembeli_per_buyer[pb_id] = []
+
+    for al_id in chosen_alamat_ids:
+        alamat_pembeli_records.append({
+            'id_alamat_pembeli': id_alamat_pembeli_counter,
+            'id_pembeli': pb_id,
+            'id_alamat': al_id
+        })
+        alamat_pembeli_per_buyer[pb_id].append(id_alamat_pembeli_counter)
+        add_statement(f"INSERT IGNORE INTO AlamatPembeli (id_alamat_pembeli, id_pembeli, id_alamat) VALUES ({id_alamat_pembeli_counter}, {pb_id}, {al_id});")
+        id_alamat_pembeli_counter += 1
+
+# Ensure TARGET_MIN_RECORDS for AlamatPembeli if needed (simple addition)
+while len(alamat_pembeli_records) < TARGET_MIN_RECORDS and pembeli_ids and alamat_ids:
     pb_id = random.choice(pembeli_ids)
     al_id = random.choice(alamat_ids)
-    # Cek apakah kombinasi sudah ada untuk menghindari error PK
-    # Untuk seeder sederhana, kita bisa menggunakan INSERT IGNORE atau skip
-    # Di sini kita coba insert baru, jika sudah ada, PK akan mencegahnya
-    add_statement(f"INSERT IGNORE INTO AlamatPembeli (id_pembeli, id_alamat, id_pesanan, is_default) VALUES ({pb_id}, {al_id}, NULL, FALSE);")
-    alamat_pembeli_count += 1 # Tetap increment, INSERT IGNORE tidak return row count.
+    # Check for duplicate (pb_id, al_id) pair before inserting if strictly necessary,
+    # but with surrogate PK, it's less of an issue unless business logic dictates uniqueness.
+    # For this seeder, we'll just add, relying on surrogate PK for table uniqueness.
+    alamat_pembeli_records.append({
+        'id_alamat_pembeli': id_alamat_pembeli_counter,
+        'id_pembeli': pb_id,
+        'id_alamat': al_id
+    })
+    if pb_id not in alamat_pembeli_per_buyer:
+        alamat_pembeli_per_buyer[pb_id] = []
+    alamat_pembeli_per_buyer[pb_id].append(id_alamat_pembeli_counter)
+    add_statement(f"INSERT IGNORE INTO AlamatPembeli (id_alamat_pembeli, id_pembeli, id_alamat) VALUES ({id_alamat_pembeli_counter}, {pb_id}, {al_id});")
+    id_alamat_pembeli_counter += 1
 
+# 6. AlamatDefault (New)
+add_statement("\n-- AlamatDefault")
+alamat_default_count = 0
+for pb_id in pembeli_ids:
+    if pb_id in alamat_pembeli_per_buyer and alamat_pembeli_per_buyer[pb_id]:
+        # Pick one id_alamat_pembeli for this buyer to be the default
+        default_ap_id = random.choice(alamat_pembeli_per_buyer[pb_id])
+        add_statement(f"INSERT IGNORE INTO AlamatDefault (id_alamat_pembeli, is_default) VALUES ({default_ap_id}, TRUE);")
+        alamat_default_count += 1
+# Ensure TARGET_MIN_RECORDS (though less critical for this table if all buyers have one)
+# This loop might create >1 default if not careful, but schema doesn't prevent.
+# For simplicity, we'll assume the above loop is sufficient for reasonable data.
 
-# 6. Keranjang
+# 7. Keranjang
 add_statement("\n-- Keranjang")
 keranjang_id_counter = 1
 for p_id_pengguna, details in pengguna_pembeli_details.items():
@@ -308,31 +355,29 @@ for p_id_pengguna, details in pengguna_pembeli_details.items():
     add_statement(f"INSERT IGNORE INTO Keranjang (id_keranjang, id_pembeli) VALUES ({keranjang_id_counter}, {pb_id});")
     keranjang_id_counter += 1
 
-# 7. AtributVarian
+# 8. AtributVarian
 add_statement("\n-- AtributVarian")
 for atr_pk in atribut_varian_pks:
     nama_atr = atribut_nama_map.get(atr_pk, atr_pk.replace('_', ' ').title())
     add_statement(f"INSERT IGNORE INTO AtributVarian (atribut_varian, nama) VALUES ('{atr_pk}', '{nama_atr}');")
 
-# 8. Produk, VarianProduk, ProdukVarianAtribut
+# 9. Produk, VarianProduk, ProdukVarianAtribut
 add_statement("\n-- Produk, VarianProduk, ProdukVarianAtribut")
 produk_id_counter = 1
 sku_global_counter = 1
 sku_values_generated_this_run = set()
 produk_varian_atribut_count = 0
 
-# Pastikan cukup produk
 num_produk_to_generate = 0
 if penjual_ids:
-    avg_produk_per_penjual = max(1, TARGET_MIN_RECORDS // len(penjual_ids))
+    avg_produk_per_penjual = max(1, TARGET_MIN_RECORDS // len(penjual_ids)) if len(penjual_ids) > 0 else TARGET_MIN_RECORDS
     num_produk_to_generate = len(penjual_ids) * avg_produk_per_penjual
-    if num_produk_to_generate < TARGET_MIN_RECORDS: # Jika masih kurang, tambah lagi
+    if num_produk_to_generate < TARGET_MIN_RECORDS:
          num_produk_to_generate = TARGET_MIN_RECORDS
 
-# Generate produk dan variannya
 for i in range(num_produk_to_generate):
-    if not penjual_ids: break # Jika tidak ada penjual, tidak bisa buat produk
-    pj_id = random.choice(penjual_ids) # Assign ke penjual random
+    if not penjual_ids: break
+    pj_id = random.choice(penjual_ids)
     nama_produk = fake.bs().replace('\'', '\'\'').title() + " " + random.choice(["Premium", "Edisi Terbatas", "Serbaguna", "Modern"])
     deskripsi_produk = fake.paragraph(nb_sentences=random.randint(2,4)).replace('\'', '\'\'')
     add_statement(f"INSERT IGNORE INTO Produk (id_produk, id_penjual, nama, deskripsi) VALUES ({produk_id_counter}, {pj_id}, '{nama_produk}', '{deskripsi_produk}');")
@@ -348,10 +393,14 @@ for i in range(num_produk_to_generate):
 
         harga_varian = round(random.uniform(10000, 3000000), 2)
         stok_varian = random.randint(0, 150)
-        all_skus_generated.append({'sku': sku_val, 'harga': harga_varian, 'stok': stok_varian, 'id_produk': produk_id_counter})
+        
+        # Add to all_skus_generated with id_produk
+        all_skus_generated.append({'sku': sku_val, 'id_produk': produk_id_counter, 'harga': harga_varian, 'stok': stok_varian})
         sku_pks_only.append(sku_val)
         current_produk_skus.append(sku_val)
-        add_statement(f"INSERT IGNORE INTO VarianProduk (sku, harga, stok) VALUES ('{sku_val}', {harga_varian}, {stok_varian});")
+        
+        # Insert into VarianProduk with id_produk
+        add_statement(f"INSERT IGNORE INTO VarianProduk (sku, id_produk, harga, stok) VALUES ('{sku_val}', {produk_id_counter}, {harga_varian}, {stok_varian});")
 
         num_attrs_for_sku = random.randint(1, min(3, len(atribut_varian_pks)))
         chosen_attrs = random.sample(atribut_varian_pks, num_attrs_for_sku)
@@ -370,42 +419,40 @@ for i in range(num_produk_to_generate):
     produk_details.append({'id_produk': produk_id_counter, 'id_penjual': pj_id, 'skus': current_produk_skus})
     produk_id_counter += 1
 
-# Tambah ProdukVarianAtribut jika kurang dari TARGET_MIN_RECORDS
 while produk_varian_atribut_count < TARGET_MIN_RECORDS and produk_details and atribut_varian_pks:
     prod_detail = random.choice(produk_details)
     if not prod_detail['skus']: continue
     sku_val = random.choice(prod_detail['skus'])
     attr_pk_val = random.choice(atribut_varian_pks)
-    nilai_attr = fake.word().title() # Generic value
+    nilai_attr = fake.word().title()
     add_statement(f"INSERT IGNORE INTO ProdukVarianAtribut (id_produk, atribut_varian, sku, nilai) VALUES ({prod_detail['id_produk']}, '{attr_pk_val}', '{sku_val}', '{nilai_attr.replace('\'', '\'\'')}');")
     produk_varian_atribut_count += 1
 
-# 9. Gambar
+# 10. Gambar
 add_statement("\n-- Gambar")
 for i in range(1, NUM_GAMBAR_TOTAL_INITIAL + 1):
     gambar_ids.append(i)
     add_statement(f"INSERT IGNORE INTO Gambar (id_gambar, gambar) VALUES ({i}, 'img/item/placeholder_{i}.jpg');")
 
-# 10. GambarProduk
+# 11. GambarProduk
 add_statement("\n-- GambarProduk")
 gambar_produk_count = 0
 if produk_details and gambar_ids:
     for pr_detail in produk_details:
         pr_id = pr_detail['id_produk']
         num_gambar_for_produk = random.randint(1, min(3, len(gambar_ids)))
+        if not gambar_ids : continue
         chosen_gbr_ids = random.sample(gambar_ids, num_gambar_for_produk)
         for gbr_id in chosen_gbr_ids:
             add_statement(f"INSERT IGNORE INTO GambarProduk (id_produk, id_gambar) VALUES ({pr_id}, {gbr_id});")
             gambar_produk_count += 1
-# Tambah jika kurang
 while gambar_produk_count < TARGET_MIN_RECORDS and produk_details and gambar_ids:
     pr_detail = random.choice(produk_details)
     gbr_id = random.choice(gambar_ids)
     add_statement(f"INSERT IGNORE INTO GambarProduk (id_produk, id_gambar) VALUES ({pr_detail['id_produk']}, {gbr_id});")
     gambar_produk_count += 1
 
-
-# 11. Tag
+# 12. Tag
 add_statement("\n-- Tag")
 common_tags = ["Elektronik", "Fashion Pria", "Fashion Wanita", "Rumah Tangga", "Kesehatan", "Kecantikan", "Mainan Anak", "Buku & Alat Tulis", "Olahraga & Outdoor", "Otomotif Parts", "Voucher Digital", "Hobi & Koleksi", "Makanan & Minuman", "Perlengkapan Bayi", "Komputer & Aksesoris", "Handphone & Tablet"]
 for i in range(1, NUM_TAG_TOTAL_INITIAL + 1):
@@ -416,25 +463,25 @@ for i in range(1, NUM_TAG_TOTAL_INITIAL + 1):
         nama_tag = fake.catch_phrase().replace('\'', '\'\'').title() + " " + str(i)
     add_statement(f"INSERT IGNORE INTO Tag (id_tag, nama) VALUES ({i}, '{nama_tag.replace('\'', '\'\'')}');")
 
-# 12. TagProduk
+# 13. TagProduk
 add_statement("\n-- TagProduk")
 tag_produk_count = 0
 if produk_details and tag_ids:
     for pr_detail in produk_details:
         pr_id = pr_detail['id_produk']
         num_tag_for_produk = random.randint(1, min(4, len(tag_ids)))
+        if not tag_ids: continue
         chosen_tg_ids = random.sample(tag_ids, num_tag_for_produk)
         for tg_id in chosen_tg_ids:
             add_statement(f"INSERT IGNORE INTO TagProduk (id_produk, id_tag) VALUES ({pr_id}, {tg_id});")
             tag_produk_count +=1
-# Tambah jika kurang
 while tag_produk_count < TARGET_MIN_RECORDS and produk_details and tag_ids:
     pr_detail = random.choice(produk_details)
     tg_id = random.choice(tag_ids)
     add_statement(f"INSERT IGNORE INTO TagProduk (id_produk, id_tag) VALUES ({pr_detail['id_produk']}, {tg_id});")
     tag_produk_count += 1
 
-# 13. BarangKeranjang
+# 14. BarangKeranjang
 add_statement("\n-- BarangKeranjang")
 barang_keranjang_count = 0
 if sku_pks_only:
@@ -442,13 +489,12 @@ if sku_pks_only:
         if 'keranjang_id' in details:
             kr_id = details['keranjang_id']
             num_barang_in_keranjang = random.randint(0, min(5, len(sku_pks_only)))
-            if num_barang_in_keranjang > 0:
+            if num_barang_in_keranjang > 0 and sku_pks_only:
                 chosen_skus_for_cart = random.sample(sku_pks_only, num_barang_in_keranjang)
                 for cart_sku in chosen_skus_for_cart:
                     kuantitas = random.randint(1, 3)
                     add_statement(f"INSERT IGNORE INTO BarangKeranjang (id_keranjang, sku, kuantitas) VALUES ({kr_id}, '{cart_sku}', {kuantitas});")
                     barang_keranjang_count += 1
-# Tambah jika kurang
 all_keranjang_ids = [d['keranjang_id'] for d in pengguna_pembeli_details.values() if 'keranjang_id' in d]
 while barang_keranjang_count < TARGET_MIN_RECORDS and all_keranjang_ids and sku_pks_only:
     kr_id = random.choice(all_keranjang_ids)
@@ -457,7 +503,7 @@ while barang_keranjang_count < TARGET_MIN_RECORDS and all_keranjang_ids and sku_
     add_statement(f"INSERT IGNORE INTO BarangKeranjang (id_keranjang, sku, kuantitas) VALUES ({kr_id}, '{cart_sku}', {kuantitas});")
     barang_keranjang_count += 1
 
-# 14. Pesanan
+# 15. Pesanan (Modified)
 add_statement("\n-- Pesanan")
 pesanan_id_counter = 1
 metode_pembayaran_opsi = ['Transfer Bank BCA', 'Transfer Bank Mandiri', 'Virtual Account BNI', 'GoPay', 'OVO', 'Dana', 'ShopeePay', 'COD', 'Kartu Kredit Visa', 'Kartu Kredit Mastercard', 'Indomaret', 'Alfamart']
@@ -471,7 +517,19 @@ if pembeli_ids:
     
     for _ in range(target_total_pesanan):
         if not pembeli_ids: break
-        pb_id = random.choice(pembeli_ids) # Pilih pembeli secara acak untuk distribusi pesanan
+        pb_id = random.choice(pembeli_ids)
+        
+        # Select an id_alamat_pembeli for this buyer
+        valid_alamat_pembeli_ids_for_buyer = [ap['id_alamat_pembeli'] for ap in alamat_pembeli_records if ap['id_pembeli'] == pb_id]
+        if not valid_alamat_pembeli_ids_for_buyer:
+            # Fallback: if buyer has no address, try to assign a random one or skip
+            # For simplicity, if no specific address, try to pick any from AlamatPembeli
+            # This situation should be rare if AlamatPembeli is populated correctly for all buyers
+            if not alamat_pembeli_records: continue # Cannot create order without any address
+            selected_ap_id = random.choice([ap['id_alamat_pembeli'] for ap in alamat_pembeli_records])
+        else:
+            selected_ap_id = random.choice(valid_alamat_pembeli_ids_for_buyer)
+
         metode_pembayaran = random.choice(metode_pembayaran_opsi)
         metode_pengiriman = random.choice(metode_pengiriman_opsi)
         catatan = fake.sentence(nb_words=random.randint(5,15)) if random.random() > 0.6 else "NULL"
@@ -481,27 +539,27 @@ if pembeli_ids:
         waktu_pemesanan_str = waktu_pemesanan.strftime('%Y-%m-%d %H:%M:%S')
 
         pesanan_details.append({'id_pesanan': pesanan_id_counter, 'id_pembeli': pb_id, 'items': []})
-        add_statement(f"INSERT IGNORE INTO Pesanan (id_pesanan, id_pembeli, metode_pembayaran, metode_pengiriman, catatan, status_pesanan, waktu_pemesanan) VALUES ({pesanan_id_counter}, {pb_id}, '{metode_pembayaran}', '{metode_pengiriman}', {catatan}, '{status_pesanan}', '{waktu_pemesanan_str}');")
+        add_statement(f"INSERT IGNORE INTO Pesanan (id_pesanan, id_pembeli, id_alamat_pembeli, metode_pembayaran, metode_pengiriman, catatan, status_pesanan, waktu_pemesanan) VALUES ({pesanan_id_counter}, {pb_id}, {selected_ap_id}, '{metode_pembayaran}', '{metode_pengiriman}', {catatan}, '{status_pesanan}', '{waktu_pemesanan_str}');")
         pesanan_id_counter += 1
         num_pesanan_generated +=1
-        if num_pesanan_generated >= TARGET_MIN_RECORDS and random.random() < 0.3 : # Setelah target tercapai, ada kemungkinan berhenti lebih awal
-            if len(pesanan_details) > TARGET_MIN_RECORDS * 1.2 : break # Jangan terlalu banyak juga
+        if num_pesanan_generated >= TARGET_MIN_RECORDS and random.random() < 0.3 :
+            if len(pesanan_details) > TARGET_MIN_RECORDS * 1.2 : break
 
 
-# 15. BarangPesanan
+# 16. BarangPesanan
 add_statement("\n-- BarangPesanan")
 barang_pesanan_count = 0
 if pesanan_details and sku_pks_only:
     for ps_detail in pesanan_details:
         ps_id = ps_detail['id_pesanan']
         num_barang_in_pesanan = random.randint(1, min(4, len(sku_pks_only)))
+        if not sku_pks_only: continue
         chosen_skus_for_order = random.sample(sku_pks_only, num_barang_in_pesanan)
         for order_sku in chosen_skus_for_order:
             kuantitas = random.randint(1, 2)
-            ps_detail['items'].append({'sku': order_sku, 'kuantitas': kuantitas}) # Simpan untuk ulasan nanti
+            ps_detail['items'].append({'sku': order_sku, 'kuantitas': kuantitas})
             add_statement(f"INSERT IGNORE INTO BarangPesanan (id_pesanan, sku, kuantitas) VALUES ({ps_id}, '{order_sku}', {kuantitas});")
             barang_pesanan_count += 1
-# Tambah jika kurang
 while barang_pesanan_count < TARGET_MIN_RECORDS and pesanan_details and sku_pks_only:
     ps_detail = random.choice(pesanan_details)
     order_sku = random.choice(sku_pks_only)
@@ -509,33 +567,33 @@ while barang_pesanan_count < TARGET_MIN_RECORDS and pesanan_details and sku_pks_
     add_statement(f"INSERT IGNORE INTO BarangPesanan (id_pesanan, sku, kuantitas) VALUES ({ps_detail['id_pesanan']}, '{order_sku}', {kuantitas});")
     barang_pesanan_count += 1
 
-
-# 16. Wishlist
+# 17. Wishlist
 add_statement("\n-- Wishlist")
 wishlist_count = 0
 if pembeli_ids and produk_details:
     all_produk_ids_only = [p['id_produk'] for p in produk_details]
-    for pb_id in pembeli_ids:
-        num_wishlist_items = random.randint(0, min(10, len(all_produk_ids_only)))
-        if num_wishlist_items > 0 and all_produk_ids_only:
-            chosen_prods_for_wishlist = random.sample(all_produk_ids_only, num_wishlist_items)
-            for wl_prod_id in chosen_prods_for_wishlist:
-                add_statement(f"INSERT IGNORE INTO Wishlist (id_pembeli, id_produk) VALUES ({pb_id}, {wl_prod_id});")
-                wishlist_count += 1
+    if all_produk_ids_only: # ensure list is not empty
+        for pb_id in pembeli_ids:
+            num_wishlist_items = random.randint(0, min(10, len(all_produk_ids_only)))
+            if num_wishlist_items > 0:
+                chosen_prods_for_wishlist = random.sample(all_produk_ids_only, num_wishlist_items)
+                for wl_prod_id in chosen_prods_for_wishlist:
+                    add_statement(f"INSERT IGNORE INTO Wishlist (id_pembeli, id_produk) VALUES ({pb_id}, {wl_prod_id});")
+                    wishlist_count += 1
 # Tambah jika kurang
-while wishlist_count < TARGET_MIN_RECORDS and pembeli_ids and all_produk_ids_only:
+while wishlist_count < TARGET_MIN_RECORDS and pembeli_ids and produk_details:
+    all_produk_ids_only = [p['id_produk'] for p in produk_details if p['id_produk']] # re-check
+    if not all_produk_ids_only: break
     pb_id = random.choice(pembeli_ids)
     wl_prod_id = random.choice(all_produk_ids_only)
     add_statement(f"INSERT IGNORE INTO Wishlist (id_pembeli, id_produk) VALUES ({pb_id}, {wl_prod_id});")
     wishlist_count += 1
 
-# 17. Ulasan
+# 18. Ulasan
 add_statement("\n-- Ulasan")
 ulasan_count = 0
-ulasan_pairs = set() # Untuk memastikan PK (id_produk, id_pembeli) unik
-
-# Kumpulkan produk yang pernah dibeli oleh pembeli
-produk_dibeli_map = {} # pembeli_id -> set(produk_id)
+ulasan_pairs = set() 
+produk_dibeli_map = {} 
 if pesanan_details and all_skus_generated:
     sku_to_produk_map = {s['sku']: s['id_produk'] for s in all_skus_generated}
     for ps_detail in pesanan_details:
@@ -546,39 +604,38 @@ if pesanan_details and all_skus_generated:
             if item['sku'] in sku_to_produk_map:
                 produk_dibeli_map[pb_id].add(sku_to_produk_map[item['sku']])
 
-# Generate ulasan berdasarkan produk yang dibeli
 if produk_dibeli_map:
     for pb_id, purchased_prod_ids in produk_dibeli_map.items():
         if not purchased_prod_ids: continue
-        num_ulasan_dari_pembeli_ini = random.randint(0, min(5, len(purchased_prod_ids))) # Pembeli mengulas beberapa produk yg dibeli
-        prods_to_review = random.sample(list(purchased_prod_ids), num_ulasan_dari_pembeli_ini)
-        for pr_id_review in prods_to_review:
-            if (pr_id_review, pb_id) not in ulasan_pairs:
-                komentar = fake.paragraph(nb_sentences=random.randint(1,3)).replace('\'', '\'\'')
-                penilaian = random.randint(1, 5)
-                add_statement(f"INSERT IGNORE INTO Ulasan (id_produk, id_pembeli, komentar, penilaian) VALUES ({pr_id_review}, {pb_id}, '{komentar}', {penilaian});")
-                ulasan_pairs.add((pr_id_review, pb_id))
-                ulasan_count += 1
-# Tambah jika kurang, dengan memilih pembeli dan produk acak (kurang realistis tp memenuhi jumlah)
-all_produk_ids_only = [p['id_produk'] for p in produk_details]
+        num_ulasan_dari_pembeli_ini = random.randint(0, min(5, len(purchased_prod_ids)))
+        if num_ulasan_dari_pembeli_ini > 0:
+            prods_to_review = random.sample(list(purchased_prod_ids), num_ulasan_dari_pembeli_ini)
+            for pr_id_review in prods_to_review:
+                if (pr_id_review, pb_id) not in ulasan_pairs:
+                    komentar = fake.paragraph(nb_sentences=random.randint(1,3)).replace('\'', '\'\'')
+                    penilaian = random.randint(1, 5)
+                    add_statement(f"INSERT IGNORE INTO Ulasan (id_produk, id_pembeli, komentar, penilaian) VALUES ({pr_id_review}, {pb_id}, '{komentar}', {penilaian});")
+                    ulasan_pairs.add((pr_id_review, pb_id))
+                    ulasan_count += 1
+all_produk_ids_only = [p['id_produk'] for p in produk_details if p['id_produk']]
 while ulasan_count < TARGET_MIN_RECORDS and all_produk_ids_only and pembeli_ids:
+    if not all_produk_ids_only : break # double check
     pr_id = random.choice(all_produk_ids_only)
     pb_id = random.choice(pembeli_ids)
     if (pr_id, pb_id) not in ulasan_pairs:
         komentar = fake.text(max_nb_chars=150).replace('\'', '\'\'')
-        penilaian = random.randint(3,5) # cenderung positif
+        penilaian = random.randint(3,5)
         add_statement(f"INSERT IGNORE INTO Ulasan (id_produk, id_pembeli, komentar, penilaian) VALUES ({pr_id}, {pb_id}, '{komentar}', {penilaian});")
         ulasan_pairs.add((pr_id, pb_id))
         ulasan_count += 1
 
-# 18. Teman
+# 19. Teman
 add_statement("\n-- Teman")
 teman_count = 0
-teman_pairs_set = set() # Untuk PK unik
+teman_pairs_set = set()
 if pengguna_ids_all:
-    # Setiap pengguna mengikuti beberapa pengguna lain
     for follower_id_pengguna in pengguna_ids_all:
-        num_following = random.randint(0, min(7, len(pengguna_ids_all) -1 )) # Setiap user follow 0-7 orang
+        num_following = random.randint(0, min(7, len(pengguna_ids_all) -1 ))
         if num_following > 0:
             possible_followed_ids = [pid for pid in pengguna_ids_all if pid != follower_id_pengguna]
             if possible_followed_ids:
@@ -588,7 +645,6 @@ if pengguna_ids_all:
                         add_statement(f"INSERT IGNORE INTO Teman (id_diikuti, id_mengikuti) VALUES ({followed_id_pengguna}, {follower_id_pengguna});")
                         teman_pairs_set.add((followed_id_pengguna, follower_id_pengguna))
                         teman_count += 1
-# Tambah jika kurang
 while teman_count < TARGET_MIN_RECORDS and len(pengguna_ids_all) > 1:
     follower = random.choice(pengguna_ids_all)
     followed_candidates = [pid for pid in pengguna_ids_all if pid != follower]
@@ -599,9 +655,10 @@ while teman_count < TARGET_MIN_RECORDS and len(pengguna_ids_all) > 1:
         teman_pairs_set.add((followed, follower))
         teman_count += 1
 
-
 # Tulis ke file SQL
-output_filename = "e-com-revised.sql"
+output_filename = "e-com.sql"
 with open(output_filename, "w", encoding="utf-8") as f:
     for stmt in sql_statements:
         f.write(stmt + "\n")
+
+print(f"Generated SQL statements written to {output_filename}")
