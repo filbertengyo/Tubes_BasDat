@@ -70,9 +70,8 @@ add_statement("""
 CREATE TABLE IF NOT EXISTS Penjual (
     id_penjual INT PRIMARY KEY,
     id_pengguna INT,
-    ktp VARCHAR(255), -- Added KTP based on schema image
+    ktp VARCHAR(255),
     foto_diri VARCHAR(255),
-    nama VARCHAR(100),
     is_verified BOOLEAN,
     FOREIGN KEY (id_pengguna) REFERENCES Pengguna(id_pengguna)
 );""")
@@ -276,11 +275,10 @@ penjual_id_counter = 1
 for p_id_pengguna in pengguna_penjual_details.keys():
     ktp_val = fake.numerify(text='3###############') # 16 digit NIK
     foto_diri = f"fotodiri/penjual{penjual_id_counter}.jpg"
-    nama_toko = fake.company().replace('\'', '\'\'') + " Store"
     is_verified = random.choice(["TRUE", "FALSE"])
     penjual_ids.append(penjual_id_counter)
     pengguna_penjual_details[p_id_pengguna]['id_penjual'] = penjual_id_counter
-    add_statement(f"INSERT IGNORE INTO Penjual (id_penjual, id_pengguna, ktp, foto_diri, nama, is_verified) VALUES ({penjual_id_counter}, {p_id_pengguna}, '{ktp_val}', '{foto_diri}', '{nama_toko}', {is_verified});")
+    add_statement(f"INSERT IGNORE INTO Penjual (id_penjual, id_pengguna, ktp, foto_diri, is_verified) VALUES ({{penjual_id_counter}}, {{p_id_pengguna}}, '{{ktp_val}}', '{{foto_diri}}', {{is_verified}});")
     penjual_id_counter +=1
 
 # 4. Pembeli
@@ -656,7 +654,7 @@ while teman_count < TARGET_MIN_RECORDS and len(pengguna_ids_all) > 1:
         teman_count += 1
 
 # Tulis ke file SQL
-output_filename = "e-com.sql"
+output_filename = "E-com.sql"
 with open(output_filename, "w", encoding="utf-8") as f:
     for stmt in sql_statements:
         f.write(stmt + "\n")
